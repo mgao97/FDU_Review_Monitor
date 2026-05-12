@@ -393,9 +393,46 @@ def query_review_info(se: Session, username: str = "") -> List[Dict]:
 # ═══════════════════════════════════════════════════════════════
 
 def compute_fingerprint(data: List[Dict]) -> str:
-    """计算评阅数据的指纹（用于检测变化）"""
+    """
+    计算评阅数据的指纹（用于检测变化）。
+
+    只提取真正有业务意义的字段，忽略 CZRQ（操作时间）、logId 等每次请求
+    都可能刷新的噪声字段，避免数据未变但 fingerprint 误变。
+    """
     import hashlib
-    raw = json.dumps(data, ensure_ascii=False, sort_keys=True)
+
+    # 主表关键字段
+    MAIN_KEYS = {
+        "LWCJPCWID", "XWPCDM", "LWCJSFTG", "LWCJZT",
+        "PYJG", "PYJGSFTG", "DBZT", "SFTYDB",
+    }
+    # 评阅人关键字段
+    PYJG_KEYS = {
+        "WID", "ZTPJ", "SFDB", "SFYY",
+        "FXPJ1", "FXPJ2", "FXPJ3", "FXPJ4",
+        "FXPJ5", "FXPJ6", "FXPJ7", "FXPJ8",
+        "PYJGFSLX", "PYRLX", "SJLY",
+    }
+
+    stable = []
+    for item in data:
+        if not isinstance(item, dict):
+            stable.append(item)
+            continue
+        entry = {k: item[k] for k in MAIN_KEYS if k in item}
+        pyjg_list = item.get("pyjg_list", [])
+        entry["pyjg_list"] = [
+            {k: py[k] for k in PYJG_KEYS if k in py}
+            for py in pyjg_list
+        ]
+        xspylx_map = item.get("xspylx_map", {})
+        entry["xspylx_map"] = {
+            k: v for k, v in xspylx_map.items()
+            if k not in ("logId",)
+        }
+        stable.append(entry)
+
+    raw = json.dumps(stable, ensure_ascii=False, sort_keys=True)
     return hashlib.md5(raw.encode()).hexdigest()
 
 
@@ -712,9 +749,9 @@ def main():
     import argparse
 
     parser = argparse.ArgumentParser(description="复旦研究生院盲审评阅结果监控")
-    parser.add_argument("-u", "--username",  default="xxx", help="学号（也可用环境变量 FUDAN_USERNAME）")
-    parser.add_argument("-p", "--password",  default="xxx", help="密码（也可用环境变量 FUDAN_PASSWORD）")
-    parser.add_argument("-s", "--sendkey",   default="xxx", help="Server酱 SendKey（也可用环境变量 SENDKEY）")
+    parser.add_argument("-u", "--username",  default="21110240065", help="学号（也可用环境变量 FUDAN_USERNAME）")
+    parser.add_argument("-p", "--password",  default="Workforme97*", help="密码（也可用环境变量 FUDAN_PASSWORD）")
+    parser.add_argument("-s", "--sendkey",   default="SCT346649Te78qewJS0TnH5GVL32MgDhkj", help="Server酱 SendKey（也可用环境变量 SENDKEY）")
     parser.add_argument("--interval",        type=int, default=0, help="检查间隔秒数，默认 1800（30分钟）")
     parser.add_argument("--debug",           action="store_true", help="调试模式：登录后抓取所有 API 端点并保存")
     parser.add_argument("--output",           default="./debug", help="调试模式输出目录（默认 ./debug）")
